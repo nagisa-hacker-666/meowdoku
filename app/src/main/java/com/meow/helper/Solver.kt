@@ -38,6 +38,16 @@ object Solver {
         return intArrayOf(sr / k, sg / k, sb / k)
     }
 
+    // nombre de blocs colorés (cases) le long d'un axe, entre from et to
+    private fun runs(a: IntArray, from: Int, to: Int, thr: Double): Int {
+        var n = 0; var inRun = false
+        for (i in from..to) {
+            val on = a[i - i % 2] >= thr
+            if (on) { if (!inRun) { inRun = true; n++ } } else inRun = false
+        }
+        return n
+    }
+
     fun detect(bmp: Bitmap): Board? {
         val w = bmp.width; val h = bmp.height
         val px = IntArray(w * h); bmp.getPixels(px, 0, w, 0, 0, w, h)
@@ -60,8 +70,12 @@ object Solver {
             doubleArrayOf(-.4, -.4), doubleArrayOf(.4, -.4), doubleArrayOf(-.4, .4), doubleArrayOf(.4, .4),
             doubleArrayOf(0.0, -.42), doubleArrayOf(0.0, .42), doubleArrayOf(-.42, 0.0), doubleArrayOf(.42, 0.0)
         )
+        val nr = runs(rowC, top, bot, rowC.max() * 0.5)
+        val nc = runs(colC, left, right, colC.max() * 0.5)
+        val sure = if (nr == nc && nr in 4..14) nr else -1
+        val order = if (sure > 0) listOf(sure) + (5..10).filter { it != sure } else (5..10).toList()
         var fallback: Board? = null
-        for (n in 5..10) {
+        for (n in order) {
             val cw = bw / n; val ch = bh / n
             val reps = ArrayList<IntArray>(); val reg = IntArray(n * n); val hasCat = BooleanArray(n * n); var ok = true
             loop@ for (r in 0 until n) for (c in 0 until n) {
@@ -78,7 +92,7 @@ object Solver {
             val (sol, cnt) = solve(reg, n)
             if (sol != null) {
                 val b = Board(n, left.toFloat(), top.toFloat(), cw, ch, sol, BooleanArray(n) { hasCat[it * n + sol[it]] })
-                if (cnt == 1) return b
+                if (cnt == 1 || n == sure) return b
                 if (fallback == null) fallback = b
             }
         }
