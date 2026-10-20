@@ -16,10 +16,10 @@ class TapService : AccessibilityService() {
     private fun stroke(x: Float, y: Float, start: Long) =
         GestureDescription.StrokeDescription(Path().apply { moveTo(x, y) }, start, 50)
 
-    fun tap(x: Float, y: Float) {
-        dispatchGesture(GestureDescription.Builder().addStroke(stroke(x, y, 0)).build(), null, null)
+    fun tap(x: Float, y: Float): Boolean {
+        return dispatchGesture(GestureDescription.Builder().addStroke(stroke(x, y, 0)).build(), null, null)
     }
-    fun doubleTap(x: Float, y: Float) {
-        dispatchGesture(GestureDescription.Builder().addStroke(stroke(x, y, 0)).addStroke(stroke(x, y, 130)).build(), null, null)
+    fun doubleTap(x: Float, y: Float): Boolean {
+        return dispatchGesture(GestureDescription.Builder().addStroke(stroke(x, y, 0)).addStroke(stroke(x, y, 130)).build(), null, null)
     }
 }

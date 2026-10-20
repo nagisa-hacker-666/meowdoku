@@ -41,7 +41,7 @@ class OverlayService : Service() {
     @Volatile private var bot = false
     private var W = 0; private var H = 0
     // points tapés pour « continuer » entre deux parties (fraction de l'écran)
-    private val cont = listOf(0.5f to 0.8f, 0.5f to 0.65f, 0.5f to 0.9f, 0.5f to 0.5f, 0.92f to 0.06f, 0.08f to 0.06f)
+    private val cont = listOf(0.5f to 0.78f, 0.5f to 0.95f)
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -139,26 +139,37 @@ class OverlayService : Service() {
         Thread { runBot() }.start()
     }
 
+    private fun say(t: String) = h.post { Toast.makeText(this, t, Toast.LENGTH_SHORT).show() }
+
     private fun runBot() {
-        var idle = 0; var k = 0
+        say("Bot démarré 🤖")
+        var boardIdle = 0; var miss = 0; var k = 0; var fails = 0
         while (bot) {
-            val svc = TapService.inst ?: break
+            val svc = TapService.inst
+            if (svc == null) { say("Accessibilité coupée : réactive Meowdoku Helper"); break }
             val board = grab()?.let { Solver.detect(it) }
-            var acted = false
             if (board != null) {
+                miss = 0
+                var acted = false
+                if (board.placed.any { !it }) say("Je place ${board.placed.count { !it }} chat(s)")
                 for (r in 0 until board.n) {
                     if (!bot) break
                     if (board.placed[r]) continue
-                    svc.doubleTap(board.left + (board.cols[r] + 0.5f) * board.cw, board.top + (r + 0.5f) * board.ch)
+                    if (!svc.doubleTap(board.left + (board.cols[r] + 0.5f) * board.cw, board.top + (r + 0.5f) * board.ch)) fails++
                     acted = true; Thread.sleep(600)
                 }
-            }
-            if (acted) { idle = 0; Thread.sleep(1500) }
-            else {
-                idle++
-                if (idle >= 2) { val p = cont[k++ % cont.size]; svc.tap(p.first * W, p.second * H); Thread.sleep(1800) }
+                if (acted) { boardIdle = 0; Thread.sleep(1500) }
+                else {
+                    Thread.sleep(1500)
+                    // niveau fini mais la grille reste affichée longtemps : on tente de continuer
+                    if (++boardIdle >= 8) { boardIdle = 0; val p = cont[k++ % cont.size]; svc.tap(p.first * W, p.second * H) }
+                }
+            } else {
+                // pas de grille : écran « Classement » ou « Parfait / Niveau N »
+                if (++miss >= 2) { val p = cont[k++ % cont.size]; if (!svc.tap(p.first * W, p.second * H)) fails++; Thread.sleep(1500) }
                 else Thread.sleep(1000)
             }
+            if (fails >= 3) { say("Android refuse les taps : vérifie l’accessibilité"); break }
         }
         bot = false
         h.post { btn?.text = "🐱" }
