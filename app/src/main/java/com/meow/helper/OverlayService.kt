@@ -36,8 +36,12 @@ class OverlayService : Service() {
     private var vd: VirtualDisplay? = null
     private var btn: TextView? = null
     private var cats: CatView? = null
-    @Volatile private var wanted = false
+    private var held: Image? = null
+    private val lock = Any()
+    @Volatile private var bot = false
     private var W = 0; private var H = 0
+    // points tapés pour « continuer » entre deux parties (fraction de l'écran)
+    private val cont = listOf(0.5f to 0.8f, 0.5f to 0.65f, 0.5f to 0.9f, 0.5f to 0.5f, 0.92f to 0.06f, 0.08f to 0.06f)
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -55,31 +59,23 @@ class OverlayService : Service() {
         val data = if (Build.VERSION.SDK_INT >= 33) i!!.getParcelableExtra("data", Intent::class.java)!! else @Suppress("DEPRECATION") i!!.getParcelableExtra<Intent>("data")!!
         proj = mpm.getMediaProjection(i.getIntExtra("code", 0), data).also { p ->
             p.registerCallback(object : MediaProjection.Callback() { override fun onStop() { stopSelf() } }, h)
-            reader = ImageReader.newInstance(W, H, PixelFormat.RGBA_8888, 2)
+            reader = ImageReader.newInstance(W, H, PixelFormat.RGBA_8888, 3)
             vd = p.createVirtualDisplay("meow", W, H, dm.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader!!.surface, null, h)
         }
         reader!!.setOnImageAvailableListener({ r ->
             val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
-            try { if (wanted) { wanted = false; val bmp = toBitmap(img); Thread { process(bmp) }.start() } } finally { img.close() }
+            synchronized(lock) { held?.close(); held = img }
         }, h)
         addButton()
         return START_NOT_STICKY
     }
 
-    private fun toBitmap(img: Image): Bitmap {
-        val p = img.planes[0]
+    private fun grab(): Bitmap? = synchronized(lock) {
+        val img = held ?: return null
+        val p = img.planes[0]; p.buffer.rewind()
         val full = Bitmap.createBitmap(p.rowStride / p.pixelStride, H, Bitmap.Config.ARGB_8888)
         full.copyPixelsFromBuffer(p.buffer)
-        return Bitmap.createBitmap(full, 0, 0, W, H)
-    }
-
-    private fun process(bmp: Bitmap) {
-        val board = Solver.detect(bmp)
-        h.post {
-            btn?.visibility = View.VISIBLE
-            if (board == null) { Toast.makeText(this, "Grille non détectée 😿", Toast.LENGTH_SHORT).show(); return@post }
-            cats = CatView(this, board).also { wm.addView(it, fullParams()) }
-        }
+        Bitmap.createBitmap(full, 0, 0, W, H)
     }
 
     private fun fullParams() = WindowManager.LayoutParams(
@@ -98,20 +94,21 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START; x = 20; y = 300 }
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = 20; y = 60 }
         val v = TextView(this).apply {
             text = "🐱"; textSize = 28f; setPadding(24, 12, 24, 12)
             background = android.graphics.drawable.GradientDrawable().apply { setColor(Color.parseColor("#CCFFFFFF")); cornerRadius = 100f }
         }
-        var sx = 0f; var sy = 0f; var ox = 0; var oy = 0; var moved = false
+        var sx = 0f; var sy = 0f; var ox = 0; var oy = 0; var moved = false; var long = false
+        val lr = Runnable { if (!moved) { long = true; toggleBot() } }
         v.setOnTouchListener { _, e ->
             when (e.action) {
-                MotionEvent.ACTION_DOWN -> { sx = e.rawX; sy = e.rawY; ox = lp.x; oy = lp.y; moved = false }
+                MotionEvent.ACTION_DOWN -> { sx = e.rawX; sy = e.rawY; ox = lp.x; oy = lp.y; moved = false; long = false; h.postDelayed(lr, 700) }
                 MotionEvent.ACTION_MOVE -> {
-                    if (Math.abs(e.rawX - sx) + Math.abs(e.rawY - sy) > 20) moved = true
+                    if (Math.abs(e.rawX - sx) + Math.abs(e.rawY - sy) > 20) { moved = true; h.removeCallbacks(lr) }
                     if (moved) { lp.x = ox + (e.rawX - sx).toInt(); lp.y = oy + (e.rawY - sy).toInt(); wm.updateViewLayout(v, lp) }
                 }
-                MotionEvent.ACTION_UP -> if (!moved) scan()
+                MotionEvent.ACTION_UP -> { h.removeCallbacks(lr); if (!moved && !long) scan() }
             }
             true
         }
@@ -119,14 +116,58 @@ class OverlayService : Service() {
     }
 
     private fun scan() {
+        if (bot) { bot = false; return }
         cats?.let { wm.removeView(it); cats = null; return }
         btn?.visibility = View.INVISIBLE
-        h.postDelayed({ wanted = true }, 250)
-        h.postDelayed({ if (wanted) { wanted = false; btn?.visibility = View.VISIBLE; Toast.makeText(this, "Pas de capture, réessaie", Toast.LENGTH_SHORT).show() } }, 2500)
+        h.postDelayed({
+            Thread {
+                val board = grab()?.let { Solver.detect(it) }
+                h.post {
+                    btn?.visibility = View.VISIBLE
+                    if (board == null) Toast.makeText(this, "Grille non détectée 😿", Toast.LENGTH_SHORT).show()
+                    else cats = CatView(this, board).also { wm.addView(it, fullParams()) }
+                }
+            }.start()
+        }, 300)
+    }
+
+    private fun toggleBot() {
+        if (bot) { bot = false; return }
+        if (TapService.inst == null) { Toast.makeText(this, "Active d’abord « Meowdoku Helper » dans Accessibilité", Toast.LENGTH_LONG).show(); return }
+        cats?.let { wm.removeView(it); cats = null }
+        bot = true; btn?.text = "🤖"
+        Thread { runBot() }.start()
+    }
+
+    private fun runBot() {
+        var idle = 0; var k = 0
+        while (bot) {
+            val svc = TapService.inst ?: break
+            val board = grab()?.let { Solver.detect(it) }
+            var acted = false
+            if (board != null) {
+                for (r in 0 until board.n) {
+                    if (!bot) break
+                    if (board.placed[r]) continue
+                    svc.doubleTap(board.left + (board.cols[r] + 0.5f) * board.cw, board.top + (r + 0.5f) * board.ch)
+                    acted = true; Thread.sleep(600)
+                }
+            }
+            if (acted) { idle = 0; Thread.sleep(1500) }
+            else {
+                idle++
+                if (idle >= 2) { val p = cont[k++ % cont.size]; svc.tap(p.first * W, p.second * H); Thread.sleep(1800) }
+                else Thread.sleep(1000)
+            }
+        }
+        bot = false
+        h.post { btn?.text = "🐱" }
     }
 
     override fun onDestroy() {
+        bot = false
         cats?.let { wm.removeView(it) }; btn?.let { wm.removeView(it) }
+        synchronized(lock) { held?.close(); held = null }
         vd?.release(); reader?.close(); proj?.stop()
         super.onDestroy()
     }

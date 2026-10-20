@@ -1,11 +1,10 @@
-
 package com.meow.helper
 
 import android.graphics.Bitmap
 import android.graphics.Color
 import kotlin.math.abs
 
-class Board(val n: Int, val left: Float, val top: Float, val cw: Float, val ch: Float, val cols: IntArray)
+class Board(val n: Int, val left: Float, val top: Float, val cw: Float, val ch: Float, val cols: IntArray, val placed: BooleanArray)
 
 object Solver {
     fun solve(reg: IntArray, n: Int): Pair<IntArray?, Int> {
@@ -64,11 +63,12 @@ object Solver {
         var fallback: Board? = null
         for (n in 5..10) {
             val cw = bw / n; val ch = bh / n
-            val reps = ArrayList<IntArray>(); val reg = IntArray(n * n); var ok = true
+            val reps = ArrayList<IntArray>(); val reg = IntArray(n * n); val hasCat = BooleanArray(n * n); var ok = true
             loop@ for (r in 0 until n) for (c in 0 until n) {
                 val cx = left + (c + 0.5) * cw; val cy = top + (r + 0.5) * ch
                 val ss = offs.map { o -> sample(px, w, h, (cx + o[0] * cw).toInt(), (cy + o[1] * ch).toInt()) }
                 val rgb = ss.maxByOrNull { s -> ss.count { close(it, s) } }!!
+                hasCat[r * n + c] = !close(sample(px, w, h, cx.toInt(), cy.toInt()), rgb)
                 var id = reps.indexOfFirst { close(it, rgb) }
                 if (id < 0) { reps.add(rgb); id = reps.size - 1 }
                 if (reps.size > n) { ok = false; break@loop }
@@ -77,7 +77,7 @@ object Solver {
             if (!ok || reps.size != n) continue
             val (sol, cnt) = solve(reg, n)
             if (sol != null) {
-                val b = Board(n, left.toFloat(), top.toFloat(), cw, ch, sol)
+                val b = Board(n, left.toFloat(), top.toFloat(), cw, ch, sol, BooleanArray(n) { hasCat[it * n + sol[it]] })
                 if (cnt == 1) return b
                 if (fallback == null) fallback = b
             }
