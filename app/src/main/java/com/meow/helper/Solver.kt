@@ -48,6 +48,24 @@ object Solver {
         return n
     }
 
+    // chaque couleur doit former UNE zone d'un seul tenant, sinon la taille devinée est fausse
+    private fun connected(reg: IntArray, n: Int): Boolean {
+        val seen = BooleanArray(n * n); var comps = 0
+        for (i in 0 until n * n) {
+            if (seen[i]) continue
+            comps++; seen[i] = true
+            val st = ArrayDeque<Int>(); st.add(i)
+            while (st.isNotEmpty()) {
+                val j = st.removeLast(); val r = j / n; val c = j % n
+                for ((dr, dc) in listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)) {
+                    val rr = r + dr; val cc = c + dc
+                    if (rr in 0 until n && cc in 0 until n && !seen[rr * n + cc] && reg[rr * n + cc] == reg[j]) { seen[rr * n + cc] = true; st.add(rr * n + cc) }
+                }
+            }
+        }
+        return comps == n
+    }
+
     fun detect(bmp: Bitmap): Board? {
         val w = bmp.width; val h = bmp.height
         val px = IntArray(w * h); bmp.getPixels(px, 0, w, 0, 0, w, h)
@@ -66,6 +84,7 @@ object Solver {
         val (left, right) = span(colC) ?: return null
         val bw = (right - left + 1).toFloat(); val bh = (bot - top + 1).toFloat()
         if (bw < 200 || bh < 200) return null
+        if (abs(bw - bh) > 0.1f * maxOf(bw, bh)) return null
         val offs = arrayOf(
             doubleArrayOf(-.4, -.4), doubleArrayOf(.4, -.4), doubleArrayOf(-.4, .4), doubleArrayOf(.4, .4),
             doubleArrayOf(0.0, -.42), doubleArrayOf(0.0, .42), doubleArrayOf(-.42, 0.0), doubleArrayOf(.42, 0.0)
@@ -89,6 +108,7 @@ object Solver {
                 reg[r * n + c] = id
             }
             if (!ok || reps.size != n) continue
+            if (!connected(reg, n)) continue
             val (sol, cnt) = solve(reg, n)
             if (sol != null) {
                 val b = Board(n, left.toFloat(), top.toFloat(), cw, ch, sol, BooleanArray(n) { hasCat[it * n + sol[it]] })
