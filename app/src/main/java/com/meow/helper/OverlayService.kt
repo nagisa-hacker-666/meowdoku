@@ -41,7 +41,7 @@ class OverlayService : Service() {
     @Volatile private var bot = false
     private var W = 0; private var H = 0
     // points tapés pour « continuer » entre deux parties (fraction de l'écran)
-    private val cont = listOf(0.5f to 0.78f, 0.5f to 0.95f)
+    private val cont = listOf(0.5f to 0.78f, 0.5f to 0.88f, 0.5f to 0.95f) // Niveau N / Recommencer / Touche pour continuer
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -151,7 +151,7 @@ class OverlayService : Service() {
 
     private fun runBot() {
         say("Bot démarré 🤖")
-        var boardIdle = 0; var miss = 0; var k = 0; var fails = 0
+        var boardIdle = 0; var miss = 0; var k = 0; var fails = 0; var lightMiss = 0
         while (bot) {
             val svc = TapService.inst
             if (svc == null) { say("Accessibilité coupée : réactive Meowdoku Helper"); break }
@@ -170,12 +170,20 @@ class OverlayService : Service() {
                 else {
                     Thread.sleep(1500)
                     // niveau fini mais la grille reste affichée longtemps : on tente de continuer
-                    if (++boardIdle >= 8) { boardIdle = 0; val p = cont[k++ % cont.size]; svc.tap(p.first * W, p.second * H) }
+                    if (++boardIdle >= 8) { boardIdle = 0; svc.tap(0.5f * W, 0.78f * H) }
                 }
             } else {
-                // pas de grille : écran « Classement » ou « Parfait / Niveau N »
-                if (++miss >= 3) { val p = cont[k++ % cont.size]; if (!svc.tap(p.first * W, p.second * H)) fails++; Thread.sleep(1500) }
-                else Thread.sleep(1000)
+                // pas de grille : on ne tape que si l'écran est assombri par un popup
+                val dark = grab()?.let { Solver.isDark(it) } == true
+                if (dark) {
+                    lightMiss = 0
+                    if (++miss >= 2) { val p = cont[k++ % cont.size]; if (!svc.tap(p.first * W, p.second * H)) fails++; Thread.sleep(1500) }
+                    else Thread.sleep(1000)
+                } else {
+                    miss = 0
+                    if (++lightMiss == 20) say("Écran inconnu : je ne touche à rien")
+                    Thread.sleep(1000)
+                }
             }
             if (fails >= 3) { say("Android refuse les taps : vérifie l’accessibilité"); break }
         }

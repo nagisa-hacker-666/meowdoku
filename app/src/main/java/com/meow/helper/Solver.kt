@@ -66,7 +66,17 @@ object Solver {
         return comps == n
     }
 
+    // écran assombri par un popup (Classement, Parfait, Plus de poissons…) ?
+    fun isDark(bmp: Bitmap): Boolean {
+        var sum = 0L; var k = 0
+        for (y in 0 until bmp.height step 40) for (x in 0 until bmp.width step 40) {
+            val p = bmp.getPixel(x, y); sum += (Color.red(p) + Color.green(p) + Color.blue(p)) / 3; k++
+        }
+        return k > 0 && sum / k < 110
+    }
+
     fun detect(bmp: Bitmap): Board? {
+        if (isDark(bmp)) return null
         val w = bmp.width; val h = bmp.height
         val px = IntArray(w * h); bmp.getPixels(px, 0, w, 0, 0, w, h)
         fun sat(p: Int): Boolean {
