@@ -144,48 +144,49 @@ class OverlayService : Service() {
     // deux détections à 350 ms d'intervalle doivent donner exactement le même résultat
     private fun stable(): Board? {
         val a = grab()?.let { Solver.detect(it) } ?: return null
-        Thread.sleep(350)
+        Thread.sleep(150)
         val b = grab()?.let { Solver.detect(it) } ?: return null
         return if (a.n == b.n && a.cols.contentEquals(b.cols)) b else null
     }
 
     private fun runBot() {
         say("Bot démarré 🤖")
-        var boardIdle = 0; var miss = 0; var k = 0; var fails = 0; var lightMiss = 0
+        var boardIdle = 0; var fails = 0; var lightMiss = 0
         while (bot) {
             val svc = TapService.inst
             if (svc == null) { say("Accessibilité coupée : réactive Meowdoku Helper"); break }
             val board = stable()
             if (board != null) {
-                miss = 0
+                lightMiss = 0
                 var acted = false
-                if (board.placed.any { !it }) say("Grille ${board.n}×${board.n} : je place ${board.placed.count { !it }} chat(s)")
+                val todo = board.placed.count { !it }
+                if (todo > 0) say("Grille ${board.n}×${board.n} : je place $todo chat(s)")
                 for (r in 0 until board.n) {
-                    if (!bot) break
+                    if (!bot || fails >= 6) break
                     if (board.placed[r]) continue
-                    if (!svc.doubleTap(board.left + (board.cols[r] + 0.5f) * board.cw, board.top + (r + 0.5f) * board.ch)) fails++
-                    acted = true; Thread.sleep(600)
+                    val ok = svc.doubleTapSync(board.left + (board.cols[r] + 0.5f) * board.cw, board.top + (r + 0.5f) * board.ch)
+                    if (ok) fails = 0 else fails++
+                    acted = true; Thread.sleep(40)
                 }
-                if (acted) { boardIdle = 0; Thread.sleep(1500) }
+                if (acted) { boardIdle = 0; Thread.sleep(500) }
                 else {
-                    Thread.sleep(1500)
+                    Thread.sleep(400)
                     // niveau fini mais la grille reste affichée longtemps : on tente de continuer
-                    if (++boardIdle >= 8) { boardIdle = 0; svc.tap(0.5f * W, 0.78f * H) }
+                    if (++boardIdle >= 25) { boardIdle = 0; svc.tap(0.5f * W, 0.78f * H) }
                 }
             } else {
                 // pas de grille : on ne tape que si l'écran est assombri par un popup
                 val dark = grab()?.let { Solver.isDark(it) } == true
                 if (dark) {
                     lightMiss = 0
-                    if (++miss >= 2) { val p = cont[k++ % cont.size]; if (!svc.tap(p.first * W, p.second * H)) fails++; Thread.sleep(1500) }
-                    else Thread.sleep(1000)
+                    for (p in cont) { svc.tap(p.first * W, p.second * H); Thread.sleep(300) }
+                    Thread.sleep(500)
                 } else {
-                    miss = 0
-                    if (++lightMiss == 20) say("Écran inconnu : je ne touche à rien")
-                    Thread.sleep(1000)
+                    if (++lightMiss == 40) say("Écran inconnu : je ne touche à rien")
+                    Thread.sleep(500)
                 }
             }
-            if (fails >= 3) { say("Android refuse les taps : vérifie l’accessibilité"); break }
+            if (fails >= 6) { say("Android refuse les taps : vérifie l’accessibilité"); break }
         }
         bot = false
         h.post { btn?.text = "🐱" }
