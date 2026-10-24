@@ -151,40 +151,40 @@ class OverlayService : Service() {
 
     private fun runBot() {
         say("Bot démarré 🤖")
-        var boardIdle = 0; var fails = 0; var lightMiss = 0; var lastActed = 0L
+        var fails = 0; var lastActed = 0L; var lastPlace = 0L; var lightMiss = 0; var boardIdle = 0
         while (bot) {
             val svc = TapService.inst
             if (svc == null) { say("Accessibilité coupée : réactive Meowdoku Helper"); break }
-            val board = stable()
-            if (board != null) {
+            val frame = grab()
+            val dark = frame != null && Solver.isDark(frame)
+            val board = if (frame != null && !dark) Solver.detect(frame) else null
+            val now = System.currentTimeMillis()
+            if (board != null && board.placed.any { !it }) {
+                // confirmation unique avant de poser les chats
+                val b2 = grab()?.let { Solver.detect(it) }
+                if (b2 == null || b2.n != board.n || !b2.cols.contentEquals(board.cols)) { Thread.sleep(60); continue }
+                val pts = ArrayList<Pair<Float, Float>>()
+                for (r in 0 until board.n) if (!board.placed[r]) {
+                    val p = (board.left + (board.cols[r] + 0.5f) * board.cw) to (board.top + (r + 0.5f) * board.ch)
+                    pts.add(p); pts.add(p)
+                }
+                val secs = if (lastPlace > 0) " (⏱ ${(now - lastPlace) / 1000}s)" else ""
+                say("${board.n}×${board.n} : ${pts.size / 2} chat(s)$secs")
+                lastPlace = now
+                if (svc.tapBatch(pts)) fails = 0 else fails++
+                lastActed = System.currentTimeMillis(); lightMiss = 0; boardIdle = 0
+                Thread.sleep(100)
+            } else if (dark) {
+                // popup assombri : Niveau N / Recommencer / Touche pour continuer
                 lightMiss = 0
-                var acted = false
-                val todo = board.placed.count { !it }
-                if (todo > 0) say("Grille ${board.n}×${board.n} : je place $todo chat(s)")
-                for (r in 0 until board.n) {
-                    if (!bot || fails >= 6) break
-                    if (board.placed[r]) continue
-                    val ok = svc.doubleTapSync(board.left + (board.cols[r] + 0.5f) * board.cw, board.top + (r + 0.5f) * board.ch)
-                    if (ok) fails = 0 else fails++
-                    acted = true; Thread.sleep(40)
-                }
-                if (acted) { boardIdle = 0; lastActed = System.currentTimeMillis(); Thread.sleep(500) }
-                else {
-                    // tous les chats sont posés : on tape en bas (zone vide) pour passer les animations
-                    svc.tap(0.5f * W, 0.95f * H); Thread.sleep(350)
-                    if (++boardIdle >= 25) { boardIdle = 0; svc.tap(0.5f * W, 0.78f * H) }
-                }
+                for (p in cont) { svc.tap(p.first * W, p.second * H); Thread.sleep(80) }
+            } else if (board != null || now - lastActed < 20000) {
+                // niveau fini : on tape en bas (zone vide) pour passer les animations
+                svc.tap(0.5f * W, 0.95f * H); Thread.sleep(100)
+                if (board != null && ++boardIdle >= 60) { boardIdle = 0; svc.tap(0.5f * W, 0.78f * H) }
             } else {
-                // pas de grille : on ne tape que si l'écran est assombri par un popup
-                val dark = grab()?.let { Solver.isDark(it) } == true
-                if (dark) {
-                    lightMiss = 0
-                    for (p in cont) { svc.tap(p.first * W, p.second * H); Thread.sleep(300) }
-                    Thread.sleep(500)
-                } else {
-                    if (System.currentTimeMillis() - lastActed < 20000) { svc.tap(0.5f * W, 0.95f * H); Thread.sleep(350) }
-                    else { if (++lightMiss == 40) say("Écran inconnu : je ne touche à rien"); Thread.sleep(500) }
-                }
+                if (++lightMiss == 40) say("Écran inconnu : je ne touche à rien")
+                Thread.sleep(400)
             }
             if (fails >= 6) { say("Android refuse les taps : vérifie l’accessibilité"); break }
         }
