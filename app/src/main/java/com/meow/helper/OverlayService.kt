@@ -151,7 +151,7 @@ class OverlayService : Service() {
 
     private fun runBot() {
         say("Bot démarré 🤖")
-        var boardIdle = 0; var fails = 0; var lightMiss = 0
+        var boardIdle = 0; var fails = 0; var lightMiss = 0; var lastActed = 0L
         while (bot) {
             val svc = TapService.inst
             if (svc == null) { say("Accessibilité coupée : réactive Meowdoku Helper"); break }
@@ -168,10 +168,10 @@ class OverlayService : Service() {
                     if (ok) fails = 0 else fails++
                     acted = true; Thread.sleep(40)
                 }
-                if (acted) { boardIdle = 0; Thread.sleep(500) }
+                if (acted) { boardIdle = 0; lastActed = System.currentTimeMillis(); Thread.sleep(500) }
                 else {
-                    Thread.sleep(400)
-                    // niveau fini mais la grille reste affichée longtemps : on tente de continuer
+                    // tous les chats sont posés : on tape en bas (zone vide) pour passer les animations
+                    svc.tap(0.5f * W, 0.95f * H); Thread.sleep(350)
                     if (++boardIdle >= 25) { boardIdle = 0; svc.tap(0.5f * W, 0.78f * H) }
                 }
             } else {
@@ -182,8 +182,8 @@ class OverlayService : Service() {
                     for (p in cont) { svc.tap(p.first * W, p.second * H); Thread.sleep(300) }
                     Thread.sleep(500)
                 } else {
-                    if (++lightMiss == 40) say("Écran inconnu : je ne touche à rien")
-                    Thread.sleep(500)
+                    if (System.currentTimeMillis() - lastActed < 20000) { svc.tap(0.5f * W, 0.95f * H); Thread.sleep(350) }
+                    else { if (++lightMiss == 40) say("Écran inconnu : je ne touche à rien"); Thread.sleep(500) }
                 }
             }
             if (fails >= 6) { say("Android refuse les taps : vérifie l’accessibilité"); break }
